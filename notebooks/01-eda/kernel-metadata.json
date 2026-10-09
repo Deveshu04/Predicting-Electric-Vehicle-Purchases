@@ -1,0 +1,15 @@
+{
+  "id": "deveshupathak/ev-purchase-01-eda",
+  "title": "EV Purchase 01 EDA",
+  "code_file": "01-eda.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [],
+  "competition_sources": ["playground-series-s6e9"],
+  "kernel_sources": [],
+  "model_sources": []
+}

@@ -1,0 +1,25 @@
+{
+  "id": "deveshupathak/ev-purchase-03-stack",
+  "title": "EV Purchase 03 Stack",
+  "code_file": "03-stack.ipynb",
+  "language": "python",
+  "kernel_type": "notebook",
+  "is_private": true,
+  "enable_gpu": false,
+  "enable_tpu": false,
+  "enable_internet": false,
+  "dataset_sources": [
+    "megayak/s6e9-six-feature-views-oof-library",
+    "megayak/s6e9-hybrid-lgbm-oof",
+    "megayak/s6e9-digit-leak-oof",
+    "legtarrr/s6e9-residual-stack-oof"
+  ],
+  "competition_sources": ["playground-series-s6e9"],
+  "kernel_sources": [
+    "deveshupathak/ev-purchase-02-models",
+    "heuljax/kps6e09-generator-aware-ridge-logistic-regression",
+    "heuljax/kps6e09-logistic-regression-sample",
+    "heuljax/kps6e09-xgb-sample"
+  ],
+  "model_sources": []
+}
