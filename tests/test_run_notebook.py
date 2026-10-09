@@ -105,3 +105,72 @@ def test_compare_identical_when_only_timing_differs(tmp_path, monkeypatch, capsy
     monkeypatch.setattr(runner, "ROOT", tmp_path)
     runner.compare("02-models")
     assert capsys.readouterr().out.strip().endswith("identical")
+
+
+def status_sequence(runner, monkeypatch, tmp_path, statuses):
+    make_folder(tmp_path)
+    pending = iter(statuses)
+    calls = []
+
+    def fake_run(command, **kwargs):
+        calls.append(command)
+        return type("Result", (), {"stdout": next(pending), "stderr": "", "returncode": 0})()
+
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    monkeypatch.setattr(runner.time, "sleep", lambda seconds: None)
+    return calls
+
+
+def test_wait_ignores_a_finished_status_until_the_new_run_starts(tmp_path, monkeypatch):
+    runner = load_runner()
+    calls = status_sequence(runner, monkeypatch, tmp_path, [
+        'has status "KernelWorkerStatus.COMPLETE"',
+        'has status "KernelWorkerStatus.QUEUED"',
+        'has status "KernelWorkerStatus.RUNNING"',
+        'has status "KernelWorkerStatus.COMPLETE"',
+    ])
+    runner.wait("01-eda", 1)
+    assert len(calls) == 4
+
+
+def test_wait_keeps_waiting_through_a_transient_cli_error(tmp_path, monkeypatch):
+    runner = load_runner()
+    calls = status_sequence(runner, monkeypatch, tmp_path, [
+        'has status "KernelWorkerStatus.RUNNING"',
+        "SSL error: connection reset by peer",
+        'has status "KernelWorkerStatus.RUNNING"',
+        'has status "KernelWorkerStatus.COMPLETE"',
+    ])
+    runner.wait("01-eda", 1)
+    assert len(calls) == 4
+
+
+def test_wait_stops_when_authentication_expires(tmp_path, monkeypatch):
+    runner = load_runner()
+    status_sequence(runner, monkeypatch, tmp_path, [
+        'has status "KernelWorkerStatus.RUNNING"',
+        "Authentication required to call the Kaggle API.",
+    ])
+    try:
+        runner.wait("01-eda", 1)
+    except SystemExit as stop:
+        assert "kaggle auth login" in str(stop)
+    else:
+        raise AssertionError("wait should have stopped")
+
+
+def test_fetch_reads_only_the_kernel_log(tmp_path, monkeypatch):
+    runner = load_runner()
+    make_folder(tmp_path)
+    dest = tmp_path / "kaggle_out" / "01-eda"
+    dest.mkdir(parents=True)
+    (dest / "zz-older-run.log").write_text(json.dumps([{"stream_name": "stdout", "data": "old run\n"}]), encoding="utf-8")
+
+    def fake_run(command, **kwargs):
+        (dest / "ev-purchase-01-eda.log").write_text(json.dumps([{"stream_name": "stdout", "data": "new run\n"}]), encoding="utf-8")
+
+    monkeypatch.setattr(runner, "ROOT", tmp_path)
+    monkeypatch.setattr(runner.subprocess, "run", fake_run)
+    runner.fetch("01-eda", None)
+    assert (dest / "stdout.txt").read_text(encoding="utf-8") == "new run\n"

@@ -7,7 +7,9 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DONE = ("complete", "error", "cancel")
+DONE = ("kernelworkerstatus.complete", "kernelworkerstatus.error", "kernelworkerstatus.cancel")
+ACTIVE = ("kernelworkerstatus.running", "kernelworkerstatus.queued")
+STOP = ("authentication required", "denied")
 TIMING = re.compile(r"elapsed|seconds|minutes|projected")
 SWITCH = "SMOKE = False"
 
@@ -51,13 +53,24 @@ def push(name, smoke):
 
 def wait(name, poll):
     kid = kernel_id(name)
+    seen_active = False
+    polls = 0
     while True:
         result = subprocess.run(["kaggle", "kernels", "status", kid], capture_output=True, text=True)
         status = (result.stdout + result.stderr).strip()
         print(time.strftime("%H:%M:%S"), status, flush=True)
-        if any(word in status.lower() for word in DONE):
-            return
-        time.sleep(poll)
+        lowered = status.lower()
+        polls += 1
+        if any(word in lowered for word in STOP):
+            sys.exit(f"authentication problem while waiting for {name}: run kaggle auth login")
+        if any(word in lowered for word in ACTIVE):
+            seen_active = True
+        elif any(word in lowered for word in DONE):
+            if seen_active:
+                return
+            if polls >= 10:
+                sys.exit(f"{name} shows a finished status but never started running; check the version on Kaggle")
+        time.sleep(poll if seen_active else 15)
 
 
 def fetch(name, pattern):
@@ -66,15 +79,19 @@ def fetch(name, pattern):
     current = dest / "stdout.txt"
     if current.exists():
         current.replace(dest / "stdout_prev.txt")
+    log = dest / f"{kernel_id(name).split('/')[1]}.log"
+    if log.exists():
+        log.unlink()
     command = ["kaggle", "kernels", "output", kernel_id(name), "-p", str(dest), "-o"]
     if pattern:
         command += ["--file-pattern", pattern]
     subprocess.run(command, check=True)
-    for log in dest.glob("*.log"):
-        entries = json.loads(log.read_text(encoding="utf-8"))
-        for stream in ("stdout", "stderr"):
-            text = "".join(e["data"] for e in entries if e.get("stream_name") == stream)
-            (dest / f"{stream}.txt").write_text(text, encoding="utf-8")
+    if not log.exists():
+        sys.exit(f"no {log.name} in the output of {name}")
+    entries = json.loads(log.read_text(encoding="utf-8"))
+    for stream in ("stdout", "stderr"):
+        text = "".join(e["data"] for e in entries if e.get("stream_name") == stream)
+        (dest / f"{stream}.txt").write_text(text, encoding="utf-8")
     print(f"fetched into {dest}")
 
 

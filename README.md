@@ -2,7 +2,7 @@
 
 Solution notebooks for the Kaggle competition [Playground Series S6E9](https://www.kaggle.com/competitions/playground-series-s6e9), "Predicting Electric Vehicle Interest". Each of the 668,665 training rows describes a person through 13 attributes such as income, environmental concern, subsidy and range anxiety, and the task is to predict whether that person will buy an electric vehicle. Submissions are scored by ROC AUC on 286,571 test rows. The solution stacks LightGBM, XGBoost and a logistic regression, built on fold-safe target encoding and a score recovered from the rule behind the data, with out-of-fold predictions that other competitors published. It finished 320th of 3,575 teams on the private leaderboard (top 9%).
 
-The three notebooks in `notebooks/` were run on Kaggle and are shown with their outputs. They rerun the submitted v6 code unchanged and reproduce its numbers to four or five decimals: the final stack's cross-validated AUC is 0.946649 here against 0.946648 in the submitted run. The small differences come from the tuning time limit, explained under Pipeline.
+The three notebooks in `notebooks/` were run on Kaggle and are shown with their outputs. They rerun the submitted v6 code unchanged. Every AUC the submitted run printed reproduces to four or five decimals (the final stack's cross-validated AUC is 0.946649 here against 0.946648), while the stacker weights move by up to about 0.03, because LightGBM and XGBoost are nearly collinear (rank correlation 0.9993). Differences of this size appear between any two Kaggle machines, from LightGBM's multithreading and the tuning time limit described under Pipeline; the submitted run printed neither its trial count nor its library versions, so its exact cause cannot be pinned down.
 
 ## Results
 
@@ -76,7 +76,7 @@ playground-series-s6e9 (competition data, CC BY 4.0)
 | 02 Models | Recipe score, fold-safe target encoding, Optuna tuning (up to 20 trials or 600 seconds), LightGBM, XGBoost and logistic regression on 10 folds | 36 to 49 minutes (three runs) |
 | 03 Stack | Our models side by side, 16 public models, forward selection, logistic stacker, submission | about 6 minutes |
 
-Each notebook runs on Kaggle. Notebook 3 reads notebook 2's saved output as a data source: the predictions in float64 with the row ids, and it refuses to run if the ids do not match the competition files. Every notebook ran at least twice. Notebook 1 printed identical output each time, and so did notebook 3 when it read the same predictions. Notebook 2 printed the same AUC to five decimals in all three of its runs, but not bit-identical output, for two reasons kept from the submitted code: the Optuna search stops after 20 trials or 600 seconds, so the speed of the Kaggle machine decides how many trials finish (15, 18 and 20 here, always with the same best trial), and LightGBM's multithreaded training rounds slightly differently on different machines. The SHA-256 fingerprints notebook 2 prints show that the XGBoost and logistic regression predictions were bit-identical across runs and the LightGBM predictions were not.
+Each notebook runs on Kaggle. Notebook 3 reads notebook 2's saved output as a data source: the predictions in float64 with the row ids, and it refuses to run if the ids do not match the competition files. Every notebook ran at least twice. Notebook 1 printed identical output each time, and notebook 3 printed identical output apart from elapsed times whenever it read the same predictions. Notebook 2 printed the same AUC to five decimals in all three of its runs, but not bit-identical output, for two reasons kept from the submitted code: the Optuna search stops after 20 trials or 600 seconds, so the speed of the Kaggle machine decides how many trials finish (15, 18 and 20 here, always with the same best trial), and LightGBM's multithreaded training rounds slightly differently on different machines. The SHA-256 fingerprints notebook 2 prints show that the XGBoost and logistic regression predictions were bit-identical across runs and the LightGBM predictions were not.
 
 ### Why three notebooks instead of one
 
@@ -86,7 +86,7 @@ The competition was worked in a single notebook. Splitting it means a change to 
 
 **The recipe score as a starting point.** The rule above was found from the data. Its score is added as a feature, and the logit of `Phi(score - 5.5)` is the base margin of LightGBM and XGBoost, so the trees learn only what the rule misses.
 
-**Target encoding inside each fold.** Exact incomes repeat, so the purchase rate of each income value is a strong feature, but it leaks the label if a row sees itself. Training rows are encoded with an inner 5-fold split and validation and test rows with the full training part of the fold. A smoothing of 1 and a Gaussian kernel over neighbouring values let rare incomes borrow strength from their neighbours.
+**Target encoding inside each fold.** Exact incomes repeat, so the purchase rate of each income value is a strong feature, but it leaks the label if a row sees itself. Training rows are encoded with an inner 5-fold split and validation and test rows with the full training part of the fold. A smoothing of 1 pulls rare values slightly towards the overall rate, and a Gaussian kernel over neighbouring values lets rare incomes borrow strength from their neighbours.
 
 **Ten folds.** More training rows per fold made the encodings and the models a little better; v2 moved from 5 to 10 folds.
 
@@ -102,14 +102,14 @@ There is no live app: the final model stacks other competitors' predictions, whi
 
 ## Reproduce
 
-1. Join the competition on Kaggle and accept its rules, then authenticate the Kaggle CLI.
+1. Join the competition on Kaggle and accept its rules, then authenticate the Kaggle CLI (`kaggle auth login`; version 2.2.4 was used). On Windows, set `PYTHONUTF8=1` and `PYTHONIOENCODING=utf-8` first, or the CLI can fail on non-ASCII log text.
 2. Create a Python 3.12 virtual environment and install `requirements-dev.txt`.
 3. In each `notebooks/*/kernel-metadata.json`, replace `deveshupathak` in `id` (and in `kernel_sources` of `03-stack`) with your Kaggle username.
 4. Push and run the notebooks in order, waiting for each to finish:
    ```bash
    python scripts/run_notebook.py push 01-eda
    ```
-   `wait`, `fetch` and `compare` follow the same pattern, and `push --smoke` runs a quick check first. Notebook 3 needs notebook 2's latest run to be complete.
+   `wait`, `fetch` and `compare` follow the same pattern, and `push --smoke` runs a quick check first. `fetch --pattern "(figures/.*|.*\.json|.*\.log)"` skips the 30 MB prediction file. `compare` needs two fetched runs. Notebook 3 needs notebook 2's latest run to be complete.
 5. Run the tests:
    ```bash
    python -m pytest
@@ -126,10 +126,10 @@ assets/      figures used in this README
 
 ## Data, public predictions and licences
 
-None of the data or predictions is stored in this repository; the notebooks read them on Kaggle.
+No data or prediction files are stored in this repository; the notebooks read them on Kaggle, and their outputs show only five example rows of `train.csv` and the first five rows of the submission.
 
 1. Competition data: Kaggle Playground Series S6E9, "Predicting Electric Vehicle Interest", 2026, [kaggle.com/competitions/playground-series-s6e9](https://www.kaggle.com/competitions/playground-series-s6e9). Licensed CC BY 4.0.
 2. The dataset the competition data was generated from: itzzomkar, "EV Adoption Behavior and Range Anxiety", [Kaggle](https://www.kaggle.com/datasets/itzzomkar/ev-adoption-behavior-and-range-anxiety), CC0 1.0. Not read by the notebooks.
 3. megayak, [S6E9 Six Feature Views OOF Library](https://www.kaggle.com/datasets/megayak/s6e9-six-feature-views-oof-library), [S6E9 hybrid LightGBM OOF](https://www.kaggle.com/datasets/megayak/s6e9-hybrid-lgbm-oof) and [S6E9 digit-leak OOF](https://www.kaggle.com/datasets/megayak/s6e9-digit-leak-oof), CC0 1.0.
 4. legtarrr, [S6E9 residual stack OOF](https://www.kaggle.com/datasets/legtarrr/s6e9-residual-stack-oof), licence listed as "other".
-5. Paul Bryan Elefante (heuljax), outputs of the notebooks [Generator-Aware Ridge Logistic Regression](https://www.kaggle.com/code/heuljax/kps6e09-generator-aware-ridge-logistic-regression), [Logistic Regression Sample](https://www.kaggle.com/code/heuljax/kps6e09-logistic-regression-sample) and [XGB Sample](https://www.kaggle.com/code/heuljax/kps6e09-xgb-sample).
+5. Paul Bryan Elefante (heuljax), outputs of the public notebooks [Generator-Aware Ridge Logistic Regression](https://www.kaggle.com/code/heuljax/kps6e09-generator-aware-ridge-logistic-regression), [Logistic Regression Sample](https://www.kaggle.com/code/heuljax/kps6e09-logistic-regression-sample) and [XGB Sample](https://www.kaggle.com/code/heuljax/kps6e09-xgb-sample), read on Kaggle as notebook sources under the competition's rules.

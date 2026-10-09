@@ -1,6 +1,7 @@
 import ast
 import json
 import re
+import shutil
 from pathlib import Path
 
 import pytest
@@ -89,20 +90,29 @@ def test_conclusions_written(name):
         assert PENDING not in source
 
 
-@pytest.mark.parametrize("name", NAMES)
-def test_kernel_metadata(name):
-    meta = metadata(name)
-    assert meta["code_file"] == f"{name}.ipynb"
-    assert meta["id"] == f"deveshupathak/ev-purchase-{name}"
-    assert meta["is_private"] is True
-    assert meta["enable_internet"] is False
-    assert meta["enable_gpu"] is False
-    assert meta["competition_sources"] == ["playground-series-s6e9"]
-    assert notebook(name)["metadata"]["kernelspec"]["name"] == "python3"
+def metadata_problems(root):
+    metas = {name: json.loads((root / "notebooks" / name / "kernel-metadata.json").read_text(encoding="utf-8")) for name in NAMES}
+    owner = metas["01-eda"]["id"].split("/")[0]
+    problems = []
+    for name, meta in metas.items():
+        kernelspec = json.loads((root / "notebooks" / name / f"{name}.ipynb").read_text(encoding="utf-8"))["metadata"]["kernelspec"]
+        checks = {
+            "code_file": meta["code_file"] == f"{name}.ipynb",
+            "id": meta["id"] == f"{owner}/ev-purchase-{name}",
+            "is_private": meta["is_private"] is True,
+            "enable_internet": meta["enable_internet"] is False,
+            "enable_gpu": meta["enable_gpu"] is False,
+            "competition_sources": meta["competition_sources"] == ["playground-series-s6e9"],
+            "kernelspec": kernelspec["name"] == "python3",
+        }
+        problems += [f"{name}: {key}" for key, ok in checks.items() if not ok]
+    if f"{owner}/ev-purchase-02-models" not in metas["03-stack"]["kernel_sources"]:
+        problems.append("03-stack: kernel_sources lacks this user's 02-models")
+    return problems
 
 
-def test_stack_reads_models_notebook():
-    assert "deveshupathak/ev-purchase-02-models" in metadata("03-stack")["kernel_sources"]
+def test_kernel_metadata():
+    assert metadata_problems(ROOT) == []
 
 
 def test_saved_names_do_not_clash_with_lookups():
@@ -118,3 +128,28 @@ def test_stack_checks_prediction_ids():
     assert "assert len(own_file) == 1" in stack
     assert 'np.array_equal(saved["train_id"], train["id"].to_numpy())' in stack
     assert 'np.array_equal(saved["test_id"], test["id"].to_numpy())' in stack
+
+
+def copy_with_owners(tmp_path, owners):
+    for name in NAMES:
+        folder = tmp_path / "notebooks" / name
+        folder.mkdir(parents=True)
+        meta = json.loads((ROOT / "notebooks" / name / "kernel-metadata.json").read_text(encoding="utf-8"))
+        meta["id"] = meta["id"].replace("deveshupathak/", f"{owners[name]}/")
+        meta["kernel_sources"] = [s.replace("deveshupathak/", f"{owners[name]}/") for s in meta["kernel_sources"]]
+        (folder / "kernel-metadata.json").write_text(json.dumps(meta), encoding="utf-8")
+        shutil.copy(ROOT / "notebooks" / name / f"{name}.ipynb", folder / f"{name}.ipynb")
+    return tmp_path
+
+
+def test_kernel_metadata_accepts_another_kaggle_user(tmp_path):
+    root = copy_with_owners(tmp_path, {name: "someone" for name in NAMES})
+    assert metadata_problems(root) == []
+
+
+def test_kernel_metadata_flags_a_stack_reading_another_users_models(tmp_path):
+    root = copy_with_owners(tmp_path, {"01-eda": "someone", "02-models": "someone", "03-stack": "other"})
+    metas = json.loads((root / "notebooks" / "03-stack" / "kernel-metadata.json").read_text(encoding="utf-8"))
+    metas["kernel_sources"][0] = "someone/ev-purchase-02-models"
+    (root / "notebooks" / "03-stack" / "kernel-metadata.json").write_text(json.dumps(metas), encoding="utf-8")
+    assert any("03-stack" in problem for problem in metadata_problems(root))
